@@ -638,6 +638,12 @@ void TWI_SlaveInterruptHandler()
     /* If collision flag is raised, slave transmit unsuccessful */
     if (currentStatus & TWI_COLL_bm)
     {
+      /* Clear collision flag to release CLKHOLD (not clearly documented in datasheet)
+       * and complete transaction
+       */
+      TWI0.SSTATUS |= TWI_COLL_bm;
+      TWI0.SCTRLB = TWI_SCMD_COMPTRANS_gc;
+      
       slave_bytesRead = 0;
       slave_bytesWritten = 0;
       slave_bytesToWrite = 0;

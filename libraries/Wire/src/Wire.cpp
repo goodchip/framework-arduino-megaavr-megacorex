@@ -18,6 +18,7 @@
 
   Modified 2012 by Todd Krein (todd@krein.org) to implement repeated starts
   Modified 2017 by Chuck Todd (ctodd@cableone.net) to correct Unconfigured Slave Mode reboot
+  Modified 2025 by Sylvain Vauclin (sylvain.vauclin+github@icloud.com) to correct collision management routine
 */
 
 extern "C"
