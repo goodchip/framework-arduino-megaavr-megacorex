@@ -153,6 +153,10 @@ void TWI_Flush(void)
  */
 void TWI_Disable(void)
 {
+  /* Wait until the bus is idle or in an unknown state before resetting the registers */
+  while((TWI0.MSTATUS & TWI_BUSSTATE_gm) > TWI_BUSSTATE_IDLE_gc)
+  {
+  }
   TWI0.MCTRLA = 0x00;
   TWI0.MBAUD = 0x00;
   TWI0.MSTATUS = TWI_BUSSTATE_IDLE_gc;
@@ -643,7 +647,7 @@ void TWI_SlaveInterruptHandler()
        */
       TWI0.SSTATUS |= TWI_COLL_bm;
       TWI0.SCTRLB = TWI_SCMD_COMPTRANS_gc;
-      
+
       slave_bytesRead = 0;
       slave_bytesWritten = 0;
       slave_bytesToWrite = 0;
