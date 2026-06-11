@@ -19,6 +19,7 @@
   Modified 2012 by Todd Krein (todd@krein.org) to implement repeated starts
   Modified 2017 by Chuck Todd (ctodd@cableone.net) to correct Unconfigured Slave Mode reboot
   Modified 2025 by Sylvain Vauclin (sylvain.vauclin+github@icloud.com) to correct collision management routine and fix disable function
+  Modified 2026 by Sylvain Vauclin (sylvain.vauclin+github@icloud.com) to add matchedAddr function to retrieve get the called adress in slave mode (distinguishing broadcast call from a slave address call) 
 */
 
 extern "C"
@@ -309,6 +310,19 @@ size_t TwoWire::write(const uint8_t *data, size_t quantity)
 int TwoWire::available()
 {
   return rxBufferLength - rxBufferIndex;
+}
+
+// must be called in:
+// slave rx event callback
+int TwoWire::matchedAddr()
+{
+  uint8_t addr = TWI_SlaveGetLastMatchedAddress();
+
+  if (addr == TWIS_ADDRESS_INVALID) {
+    return -1;
+  }
+
+  return addr;
 }
 
 // must be called in:

@@ -48,6 +48,7 @@ static register8_t slave_trans_status;
 static register8_t slave_result;
 static register8_t slave_callUserReceive;
 static register8_t slave_callUserRequest;
+static volatile uint8_t slave_lastMatchedAddr;
 
 /* TWI module mode */
 static volatile TWI_MODE_t twi_mode;
@@ -127,6 +128,7 @@ void TWI_SlaveInit(uint8_t address, uint8_t receive_broadcast, uint8_t second_ad
 
   slave_bytesRead = 0;
   slave_bytesWritten = 0;
+  slave_lastMatchedAddr = TWIS_ADDRESS_INVALID;
   slave_trans_status = TWIS_STATUS_READY;
   slave_result = TWIS_RESULT_UNKNOWN;
   slave_callUserRequest = 0;
@@ -152,7 +154,7 @@ void TWI_Flush(void)
  *
  */
 void TWI_Disable(void)
-{
+{ 
   /* Wait until the bus is idle or in an unknown state before resetting the registers */
   while((TWI0.MSTATUS & TWI_BUSSTATE_gm) > TWI_BUSSTATE_IDLE_gc)
   {
@@ -164,6 +166,7 @@ void TWI_Disable(void)
   TWI0.SCTRLA = 0x00;
   TWI0.SADDRMASK = 0;
   twi_mode = TWI_MODE_UNKNOWN;
+  slave_lastMatchedAddr = TWIS_ADDRESS_INVALID;
 }
 
 /*! \brief Returns the TWI bus state.
@@ -583,6 +586,18 @@ void TWI_MasterTransactionFinished(uint8_t result)
   twi_mode = TWI_MODE_MASTER;
 }
 
+/*! \brief Returns the last 7-bit address matched by the slave.
+ *
+ *  The value is captured from the received address byte during the
+ *  slave address match phase.
+ *
+ *  \retval The last matched 7-bit address.
+ */
+uint8_t TWI_SlaveGetLastMatchedAddress()
+{
+  return slave_lastMatchedAddr;
+}
+
 /*! \brief Common TWI slave interrupt service routine.
  *
  *  Check current status and calls the appropriate handler.
@@ -668,6 +683,7 @@ void TWI_SlaveInterruptHandler()
   }
 }
 
+
 /*! \brief TWI slave address interrupt handler.
  *
  *  This is the slave address match handler that takes care of responding to
@@ -678,6 +694,9 @@ void TWI_SlaveAddressMatchHandler()
 {
   slave_trans_status = TWIS_STATUS_BUSY;
   slave_result = TWIS_RESULT_UNKNOWN;
+
+  /* Read the first byte and extract the 7-bit address */
+  slave_lastMatchedAddr = TWI0.SDATA >> 1;
 
   /* Send ACK, wait for data interrupt */
   TWI0.SCTRLB = TWI_SCMD_RESPONSE_gc;
@@ -835,6 +854,7 @@ void TWI_SlaveTransactionFinished(uint8_t result)
   TWI0.SCTRLA |= (TWI_APIEN_bm | TWI_PIEN_bm);
   twi_mode = TWI_MODE_SLAVE;
   slave_result = result;
+  slave_lastMatchedAddr = TWIS_ADDRESS_INVALID;
   slave_trans_status = TWIM_STATUS_READY;
 }
 

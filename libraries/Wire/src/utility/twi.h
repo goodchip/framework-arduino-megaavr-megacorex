@@ -33,6 +33,9 @@
 #define TWIS_STATUS_READY 0
 #define TWIS_STATUS_BUSY 1
 
+/* Addresses values defines. */
+#define TWIS_ADDRESS_INVALID 0xFF
+
 /*! Transaction result enumeration. */
 typedef enum __attribute__((packed)) TWIM_RESULT_enum
 {
@@ -99,6 +102,7 @@ void TWI_MasterWriteHandler(void);
 void TWI_MasterReadHandler(void);
 void TWI_MasterTransactionFinished(uint8_t result);
 
+uint8_t TWI_SlaveGetLastMatchedAddress(void);
 void TWI_SlaveInterruptHandler(void);
 void TWI_SlaveAddressMatchHandler(void);
 void TWI_SlaveStopHandler(void);

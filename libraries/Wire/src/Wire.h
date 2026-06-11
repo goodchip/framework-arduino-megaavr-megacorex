@@ -82,6 +82,7 @@ class TwoWire : public Stream
     virtual size_t write(uint8_t data);
     virtual size_t write(const uint8_t *data, size_t quantity);
     virtual int available();
+    virtual int matchedAddr();
     virtual int read();
     virtual int peek();
     virtual void flush();
