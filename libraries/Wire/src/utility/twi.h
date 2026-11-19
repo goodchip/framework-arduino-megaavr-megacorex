@@ -102,7 +102,7 @@ void TWI_MasterWriteHandler(void);
 void TWI_MasterReadHandler(void);
 void TWI_MasterTransactionFinished(uint8_t result);
 
-uint8_t TWI_SlaveGetLastMatchedAddress(void);
+uint8_t TWI_SlaveGetIncomingAddress(void);
 void TWI_SlaveInterruptHandler(void);
 void TWI_SlaveAddressMatchHandler(void);
 void TWI_SlaveStopHandler(void);

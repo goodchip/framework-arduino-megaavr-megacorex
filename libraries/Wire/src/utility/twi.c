@@ -48,7 +48,7 @@ static register8_t slave_trans_status;
 static register8_t slave_result;
 static register8_t slave_callUserReceive;
 static register8_t slave_callUserRequest;
-static volatile uint8_t slave_lastMatchedAddr;
+static volatile uint8_t slave_incomingAddr;
 
 /* TWI module mode */
 static volatile TWI_MODE_t twi_mode;
@@ -128,7 +128,7 @@ void TWI_SlaveInit(uint8_t address, uint8_t receive_broadcast, uint8_t second_ad
 
   slave_bytesRead = 0;
   slave_bytesWritten = 0;
-  slave_lastMatchedAddr = TWIS_ADDRESS_INVALID;
+  slave_incomingAddr = TWIS_ADDRESS_INVALID;
   slave_trans_status = TWIS_STATUS_READY;
   slave_result = TWIS_RESULT_UNKNOWN;
   slave_callUserRequest = 0;
@@ -166,7 +166,7 @@ void TWI_Disable(void)
   TWI0.SCTRLA = 0x00;
   TWI0.SADDRMASK = 0;
   twi_mode = TWI_MODE_UNKNOWN;
-  slave_lastMatchedAddr = TWIS_ADDRESS_INVALID;
+  slave_incomingAddr = TWIS_ADDRESS_INVALID;
 }
 
 /*! \brief Returns the TWI bus state.
@@ -586,16 +586,17 @@ void TWI_MasterTransactionFinished(uint8_t result)
   twi_mode = TWI_MODE_MASTER;
 }
 
-/*! \brief Returns the last 7-bit address matched by the slave.
+/*! \brief Returns the incoming address byte, including the R/W bit.
  *
  *  The value is captured from the received address byte during the
  *  slave address match phase.
  *
- *  \retval The last matched 7-bit address.
+ *  \retval The received address byte, or TWIS_ADDRESS_INVALID outside a transaction.
+ *  The reserved address 0x7F in read direction aliases the invalid sentinel.
  */
-uint8_t TWI_SlaveGetLastMatchedAddress()
+uint8_t TWI_SlaveGetIncomingAddress()
 {
-  return slave_lastMatchedAddr;
+  return slave_incomingAddr;
 }
 
 /*! \brief Common TWI slave interrupt service routine.
@@ -695,8 +696,8 @@ void TWI_SlaveAddressMatchHandler()
   slave_trans_status = TWIS_STATUS_BUSY;
   slave_result = TWIS_RESULT_UNKNOWN;
 
-  /* Read the first byte and extract the 7-bit address */
-  slave_lastMatchedAddr = TWI0.SDATA >> 1;
+  /* Capture the address byte, including the R/W bit. */
+  slave_incomingAddr = TWI0.SDATA;
 
   /* Send ACK, wait for data interrupt */
   TWI0.SCTRLB = TWI_SCMD_RESPONSE_gc;
@@ -854,7 +855,7 @@ void TWI_SlaveTransactionFinished(uint8_t result)
   TWI0.SCTRLA |= (TWI_APIEN_bm | TWI_PIEN_bm);
   twi_mode = TWI_MODE_SLAVE;
   slave_result = result;
-  slave_lastMatchedAddr = TWIS_ADDRESS_INVALID;
+  slave_incomingAddr = TWIS_ADDRESS_INVALID;
   slave_trans_status = TWIM_STATUS_READY;
 }
 
