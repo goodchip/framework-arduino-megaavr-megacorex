@@ -18,12 +18,34 @@
 * ANY WAY RELATED TO THIS SOFTWARE WILL NOT EXCEED THE AMOUNT OF FEES, IF ANY,
 * THAT YOU HAVE PAID DIRECTLY TO MICROCHIP FOR THIS SOFTWARE.
 *
+* Modified 2026 by Sylvain Vauclin (sylvain.vauclin+github@icloud.com) to add adaptative BCM283x clock-stretching bug fix
+*
  *****************************************************************************/
 
 #ifndef TWI_DRIVER_H
 #define TWI_DRIVER_H
 
 #include "avr/io.h"
+
+/* BCM283x clock-stretching compatibility for slave transmissions. Enabled by default.
+ * Define TWI_BCM283X_BUGFIX globally as 0 to compile the original driver path.
+ * 
+ * When stretching SCL after a read ACK, BCM283x requires a stretch longer than half a clock period to avoid corruption:
+ * https://www.advamation.com/knowhow/raspberrypi/rpi-i2c-bug.html
+ * 
+ * No delay is injected for the address because it is transmitted by the master.
+ * No delay is injected for the first data byte because response preparation already stretches SCL beyond half a clock period.
+ * A delay slightly longer than half a clock period is computed from the first data transfer and applied after each ACK, from the second data byte onward.
+ *
+ * Only slave transmissions are delayed; master and slave RX paths are unchanged.
+ */
+#ifndef TWI_BCM283X_BUGFIX
+#define TWI_BCM283X_BUGFIX 1
+#endif
+
+#if TWI_BCM283X_BUGFIX != 0 && TWI_BCM283X_BUGFIX != 1
+#error "TWI_BCM283X_BUGFIX must be 0 or 1"
+#endif
 
 /*! Transaction status defines. */
 #define TWIM_STATUS_READY 0

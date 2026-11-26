@@ -17,6 +17,7 @@
   Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 
   Modified 2012 by Todd Krein (todd@krein.org) to implement repeated starts
+  Modified 2026 by Sylvain Vauclin (sylvain.vauclin+github@icloud.com) to add getIncomingAddress() for the received address byte, including R/W, in slave mode
 */
 
 #ifndef TwoWire_h

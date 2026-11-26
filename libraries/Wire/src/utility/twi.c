@@ -18,10 +18,101 @@
 * ANY WAY RELATED TO THIS SOFTWARE WILL NOT EXCEED THE AMOUNT OF FEES, IF ANY,
 * THAT YOU HAVE PAID DIRECTLY TO MICROCHIP FOR THIS SOFTWARE.
 *
+* Modified 2026 by Sylvain Vauclin (sylvain.vauclin+github@icloud.com) to add adaptative BCM283x clock-stretching bug fix
+*
  *****************************************************************************/
 
 #include "twi.h"
 #include "Arduino.h"
+
+#if TWI_BCM283X_BUGFIX
+/* Read MegaCoreX's existing system timebase without modifying the core.
+ * timer_millis is defined in wiring.c; only its low byte is needed here.
+ * Keep timer selection in the same priority order as wiring.c. */
+extern volatile uint32_t timer_millis;
+#if !defined(TIME_TRACKING_TIMER_COUNT) || !defined(TIME_TRACKING_TIMER_DIVIDER)
+#error "Adaptive twi BCM283x bugfix requires MegaCoreX system timer constants"
+#endif
+#if defined(MILLIS_USE_TIMERB0)
+#define TWI_SYSTEM_TIMER TCB0
+#elif defined(MILLIS_USE_TIMERB1)
+#define TWI_SYSTEM_TIMER TCB1
+#elif defined(MILLIS_USE_TIMERB2)
+#define TWI_SYSTEM_TIMER TCB2
+#elif defined(TCB3)
+#define TWI_SYSTEM_TIMER TCB3
+#else
+#error "Adaptive twi BCM283x bugfix  cannot identify the MegaCoreX system timer"
+#endif
+
+/* Same pending-interrupt correction as micros(). The timer remains read-only. */
+static uint32_t twi_timebase_snapshot(void)
+{
+  const uint8_t saved = SREG;
+  cli();
+  uint8_t ms = *((volatile uint8_t *)&timer_millis);
+  uint16_t ticks = TWI_SYSTEM_TIMER.CNT;
+  if (TWI_SYSTEM_TIMER.INTFLAGS & TCB_CAPT_bm)
+  {
+    ++ms;
+    ticks = TWI_SYSTEM_TIMER.CNT;
+  }
+  SREG = saved;
+  return (uint32_t)ticks | ((uint32_t)ms << 16);
+}
+
+/* Fixed 5 us fallback converted to the same four-cycle loop as adaptive waits.
+ * 4*n-1 is at least the fixed delay, rounded upward to a CPU cycle.
+ * No extra include, timer reservation or timer configuration is needed. */
+#define TWI_FIXED_5US_CYCLES ((F_CPU + 199999UL) / 200000UL)
+#define TWI_FALLBACK_LOOPS ((TWI_FIXED_5US_CYCLES + 4UL) / 4UL)
+
+/* Three bytes of state: the sample is replaced by its result after qualification.
+ * Reset on every addressed transaction. Qualification always installs a
+ * nonzero fallback before validating the sample, then replaces it if valid. */
+static union {
+  struct { uint16_t start; uint8_t epoch; } sample;
+  uint8_t loops;
+} slave_timing;
+
+static inline __attribute__((always_inline)) void twi_wait_loops(uint8_t loops)
+{
+  uint16_t counter = loops;
+  __asm__ __volatile__("1: sbiw %0,1\n\tbrne 1b" : "=w"(counter) : "0"(counter));
+}
+
+static void twi_qualify_timing(void)
+{
+  const uint32_t snapshot = twi_timebase_snapshot();
+  const uint16_t end = snapshot;
+  const uint8_t epoch = snapshot >> 16;
+  const uint16_t period = TIME_TRACKING_TIMER_COUNT;
+  const uint8_t epochs = (uint8_t)(epoch - slave_timing.sample.epoch);
+  uint16_t elapsed;
+  /* Read the sample before installing the fallback: both share storage. */
+  const uint16_t start = slave_timing.sample.start;
+  slave_timing.loops = TWI_FALLBACK_LOOPS;
+  if (epochs == 0 && end >= start)
+    elapsed = end - start;
+  else if (epochs == 1 && end < start)
+    elapsed = period - start + end;
+  else
+    return; /* Paused transaction / inconsistent epoch */
+
+  /* Supported measurement envelope: roughly 5..200 us for one byte+ACK, including
+   * ISR latency. Longer or implausibly short samples use the fixed fallback.
+   * Bounds also keep the subsequent addition and byte loop count in range. */
+  const uint16_t cycles = elapsed * TIME_TRACKING_TIMER_DIVIDER;
+  if (cycles < (F_CPU / 200000UL) || cycles > (F_CPU / 5000UL))
+    return;
+  /* Equivalent low byte of rounded >> 6, using four one-cycle rotations
+   * instead of the six-iteration 16-bit shift emitted by avr-gcc -Os. */
+  const uint16_t rounded = cycles + 63u;
+  uint8_t high = rounded >> 8, low = rounded;
+  __asm__ __volatile__("lsl %1\n\trol %0\n\tlsl %1\n\trol %0" : "+r"(high), "+r"(low) : : "cc");
+  slave_timing.loops = high;
+}
+#endif
 
 /* Master variables */
 static register8_t master_slaveAddress; /*!< Slave address */
@@ -693,6 +784,9 @@ void TWI_SlaveInterruptHandler()
  */
 void TWI_SlaveAddressMatchHandler()
 {
+#if TWI_BCM283X_BUGFIX
+  slave_timing.loops = 0;
+#endif
   slave_trans_status = TWIS_STATUS_BUSY;
   slave_result = TWIS_RESULT_UNKNOWN;
 
@@ -763,6 +857,12 @@ void TWI_SlaveDataHandler()
  */
 void TWI_SlaveWriteHandler()
 {
+#if TWI_BCM283X_BUGFIX
+  /* Qualify once, on the ACK after data byte 1, if another byte is needed. */
+  if (slave_bytesWritten == 1 && slave_bytesWritten < slave_bytesToWrite &&
+      !(TWI0.SSTATUS & TWI_RXACK_bm))
+    twi_qualify_timing();
+#endif
   /* If NACK, slave write transaction finished */
   if ((slave_bytesWritten > 0) && (TWI0.SSTATUS & TWI_RXACK_bm))
   {
@@ -776,10 +876,27 @@ void TWI_SlaveWriteHandler()
     if (slave_bytesWritten < slave_bytesToWrite)
     {
       uint8_t data = slave_writeData[slave_bytesWritten];
+
+#if TWI_BCM283X_BUGFIX
+      if (slave_bytesWritten > 0)
+      {
+        /* The first data ACK has qualified a sample or installed fallback. */
+        twi_wait_loops(slave_timing.loops);
+      }
+#endif
       TWI0.SDATA = data;
       slave_bytesWritten++;
 
       /* Send data, wait for data interrupt */
+#if TWI_BCM283X_BUGFIX
+      /* Snapshot the first data byte just before releasing SCL. */
+      if (slave_bytesWritten == 1)
+      {
+        const uint32_t snapshot = twi_timebase_snapshot();
+        slave_timing.sample.start = snapshot;
+        slave_timing.sample.epoch = snapshot >> 16;
+      }
+#endif
       TWI0.SCTRLB = TWI_SCMD_RESPONSE_gc;
     }
 
